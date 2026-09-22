@@ -1,0 +1,65 @@
+// =============================================================================
+// calculation_groups.dax
+//
+// A calculation group ("Time Comparison") that lets ANY base measure
+// (Total Revenue, Total Sessions, Conversion Rate...) be viewed as
+// Current / PY / YoY % / MoM % from a single slicer, instead of writing a
+// PY and YoY variant of every single measure by hand.
+//
+// Built with Tabular Editor (free, C# scripting or the calc-group UI) since
+// Power BI Desktop doesn't expose calculation group authoring natively —
+// this is standard practice and worth saying explicitly in an interview.
+//
+// Table: "Time Comparison" | Column: "Time Calculation"
+// =============================================================================
+
+CALCULATIONGROUP 'Time Comparison'
+
+CALCULATIONITEM "Current" =
+    SELECTEDMEASURE ()
+
+CALCULATIONITEM "PY" =
+    CALCULATE (
+        SELECTEDMEASURE (),
+        SAMEPERIODLASTYEAR ( dim_date[date_key] )
+    )
+
+CALCULATIONITEM "YoY %" =
+    VAR CurrentValue = SELECTEDMEASURE ()
+    VAR PriorValue =
+        CALCULATE (
+            SELECTEDMEASURE (),
+            SAMEPERIODLASTYEAR ( dim_date[date_key] )
+        )
+    RETURN
+        DIVIDE ( CurrentValue - PriorValue, PriorValue )
+
+CALCULATIONITEM "MoM %" =
+    VAR CurrentValue = SELECTEDMEASURE ()
+    VAR PriorValue =
+        CALCULATE (
+            SELECTEDMEASURE (),
+            DATEADD ( dim_date[date_key], -1, MONTH )
+        )
+    RETURN
+        DIVIDE ( CurrentValue - PriorValue, PriorValue )
+
+CALCULATIONITEM "YTD" =
+    CALCULATE (
+        SELECTEDMEASURE (),
+        DATESYTD ( dim_date[date_key] )
+    )
+
+// -----------------------------------------------------------------------------
+// Format string expression — makes the % items render as percentages and
+// the Current/PY/YTD items inherit the base measure's own format string,
+// rather than every calc item showing as a raw decimal.
+// -----------------------------------------------------------------------------
+// Format string expression for the calculation group:
+//
+//   SWITCH (
+//       SELECTEDVALUE ( 'Time Comparison'[Time Calculation] ),
+//       "YoY %", "0.0%;-0.0%",
+//       "MoM %", "0.0%;-0.0%",
+//       SELECTEDMEASUREFORMATSTRING ()
+//   )

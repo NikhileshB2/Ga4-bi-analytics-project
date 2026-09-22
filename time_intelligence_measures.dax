@@ -1,0 +1,109 @@
+// =============================================================================
+// time_intelligence_measures.dax
+//
+// Core measures for the semantic model. Grouped by fact table. Every
+// time-intelligence measure assumes `dim_date[date_key]` is marked as the
+// model's official Date table (Table Tools > Mark as Date Table), on a
+// contiguous calendar with no gaps.
+// =============================================================================
+
+// ---------- Base measures (fact_sessions) -----------------------------------
+
+Total Sessions =
+DISTINCTCOUNT ( fact_sessions[session_id] )
+
+Total Users =
+DISTINCTCOUNT ( fact_sessions[user_pseudo_id] )
+
+Bounce Rate =
+DIVIDE (
+    CALCULATE ( [Total Sessions], fact_sessions[bounced] = TRUE ),
+    [Total Sessions]
+)
+
+Avg Session Duration (min) =
+AVERAGE ( fact_sessions[duration_seconds] ) / 60
+
+Conversion Rate =
+DIVIDE (
+    CALCULATE ( [Total Sessions], fact_sessions[converted] = TRUE ),
+    [Total Sessions]
+)
+
+// ---------- Base measures (fact_conversions) ---------------------------------
+
+Total Revenue =
+SUM ( fact_conversions[revenue] )
+
+Total Units Sold =
+SUM ( fact_conversions[quantity] )
+
+Avg Order Value =
+DIVIDE ( [Total Revenue], [Total Sessions] )
+
+// ---------- Time intelligence -------------------------------------------------
+// Standard pattern used throughout: wrap the base measure, don't
+// re-aggregate raw columns, so every YoY/MoM variant stays consistent with
+// whatever filter context (slicers, visuals) is already applied upstream.
+
+Revenue PY =
+CALCULATE (
+    [Total Revenue],
+    SAMEPERIODLASTYEAR ( dim_date[date_key] )
+)
+
+Revenue YoY % =
+VAR CurrentRevenue = [Total Revenue]
+VAR PriorRevenue = [Revenue PY]
+RETURN
+    DIVIDE ( CurrentRevenue - PriorRevenue, PriorRevenue )
+
+Revenue MTD =
+TOTALMTD ( [Total Revenue], dim_date[date_key] )
+
+Revenue QTD =
+TOTALQTD ( [Total Revenue], dim_date[date_key] )
+
+Revenue YTD =
+TOTALYTD ( [Total Revenue], dim_date[date_key] )
+
+// Rolling window without a built-in TOTALxTD helper — shows the explicit
+// DATESINPERIOD pattern, worth knowing since not every rolling window is a
+// calendar-aligned one (e.g. "trailing 28 days" is a common digital-analytics ask).
+Revenue Trailing 28D =
+CALCULATE (
+    [Total Revenue],
+    DATESINPERIOD ( dim_date[date_key], MAX ( dim_date[date_key] ), -28, DAY )
+)
+
+// Prior-period comparison that isn't a calendar year — MoM using DATEADD,
+// which shifts by the given interval regardless of period boundaries.
+Revenue MoM % =
+VAR CurrentRevenue = [Total Revenue]
+VAR PriorMonthRevenue =
+    CALCULATE ( [Total Revenue], DATEADD ( dim_date[date_key], -1, MONTH ) )
+RETURN
+    DIVIDE ( CurrentRevenue - PriorMonthRevenue, PriorMonthRevenue )
+
+// ---------- A measure that is deliberately SLOW, plus the fixed version -----
+// Left in on purpose — a good interview answer is being able to point at
+// both and explain the difference.
+
+// SLOW: iterates fact_events row by row via a FILTER inside CALCULATE,
+// forcing a table scan instead of using the storage engine's native
+// filter propagation. On a large fact this pushes work from the (fast,
+// columnar) storage engine to the (slower, single-threaded) formula engine.
+Purchase Events (slow pattern) =
+CALCULATE (
+    COUNTROWS ( fact_events ),
+    FILTER ( fact_events, fact_events[event_name] = "purchase" )
+)
+
+// FAST: same result, but the predicate is a simple column filter passed
+// directly to CALCULATE, which the storage engine can evaluate natively
+// without materializing an intermediate row-by-row table.
+Purchase Events (fast pattern) =
+CALCULATE (
+    COUNTROWS ( fact_events ),
+    fact_events[event_name] = "purchase"
+)
