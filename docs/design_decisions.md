@@ -1,8 +1,5 @@
 # Design Decisions
 
-Written so every choice below can be defended in an interview, not just
-described.
-
 ## 1. Import vs DirectQuery vs Composite
 
 **Chosen: Composite model.** `dim_date`, `dim_traffic_source`, `dim_page`,
